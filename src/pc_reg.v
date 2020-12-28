@@ -22,8 +22,18 @@
 module pc_reg(
     input wire clk,
     input wire rst,
+    
+    // to IF
     output reg [`AddrLen - 1 : 0] pc,
-    output reg chip_enable);
+    output reg chip_enable,
+
+    // from stall_ctrl
+    input wire stall_i,
+    
+    // from EX
+    input wire jump_i,
+    input reg [`AddrLen - 1 : 0] jump_addr_i
+);
 
 always @ (posedge clk) begin
     if (rst == `ResetEnable)
@@ -33,12 +43,14 @@ always @ (posedge clk) begin
 end
 
 always @ (posedge clk) begin
-    if (chip_enable == `ChipDisable) begin
+    if (chip_enable == `ChipDisable)
         pc <= `ZERO_WORD;
-    end
-    else begin
-        pc <= pc + 4'h4;
-    end
+    else if (stall_i[0] == 1'b1)
+        pc <= pc;
+    else if (jump_i  == 1'b1)
+        pc <= jump_addr_i;
+    else
+        pc <= pc + 32'h4;
 end
 
 endmodule

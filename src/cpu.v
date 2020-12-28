@@ -2,18 +2,54 @@
 // port modification allowed for debugging purposes
 
 module cpu(
-  input  wire                 clk_in,			// system clock signal
-  input  wire                 rst_in,			// reset signal
-  input  wire [`RegLen - 1 : 0] rom_data_i,
-  output wire [`InstLen - 1 : 0] rom_addr_o,
-  output wire rom_ce_o
+  input  wire             clk_in,	// system clock signal
+  input  wire             rst_in,	// reset signal
+  input  wire             rdy_in,	// ready signal, pause cpu when low
+  input  wire [ 7:0]      mem_din,	// data input bus
+  output wire [ 7:0]      mem_dout,	// data output bus
+  output wire [31:0]      mem_a,	// address bus (only 17:0 is used)
+  output wire             mem_wr,	// write/read signal (1 for write)
+  input  wire             io_buffer_full, // 1 if uart buffer is full
+  output wire [31:0]	  dbgreg_dout	// cpu register output (debugging demo)
 );
-//PC -> IF/ID
-wire [`AddrLen - 1 : 0] pc;
+
+// implementation goes here
+
+// Specifications:
+// - Pause cpu(freeze pc, registers, etc.) when rdy_in is low
+// - Memory read result will be returned in the next cycle. Write takes 1 cycle(no need to wait)
+// - Memory is of size 128KB, with valid address ranging from 0x0 to 0x20000
+// - I/O port is mapped to address higher than 0x30000 (mem_a[17:16]==2'b11)
+// - 0x30000 read: read a byte from input
+// - 0x30000 write: write a byte to output (write 0x00 is ignored)
+// - 0x30004 read: read clocks passed since cpu starts (in dword, 4 bytes)
+// - 0x30004 write: indicates program stop (will output '\0' through uart tx)
+
+wire rst_im;
+assign rst_im = rst_in || !rdy_in;
+
+//PC -> IF
+wire [`AddrLen - 1 : 0] pc_pc_if;
+
+//IF -> IF/ID
+wire [`AddrLen - 1 : 0] pc_if_ifid;
+wire [`InstLen - 1 : 0] inst_if_ifid;
+
+//IF -> StallCtrl
+wire stall_if;
+
+//IF(Icache) -> MemCtrl
+wire inst_needed;
+wire [`InstLen] inst_addr;
+
+//MemCtrl -> IF(Icache)
+wire [`InstLen] inst_data;
+wire inst_rdy;
+wire inst_busy;
 
 //IF/ID -> ID
-wire [`AddrLen - 1 : 0] id_pc_i;
-wire [`InstLen - 1 : 0] id_inst_i;
+wire [`AddrLen - 1 : 0] pc_ifid_id;
+wire [`InstLen - 1 : 0] inst_ifid_id;
 
 //Register -> ID
 wire [`RegLen - 1 : 0] reg1_data;
@@ -26,70 +62,284 @@ wire [`RegAddrLen - 1 : 0] reg2_addr;
 wire [`RegLen - 1 : 0] reg2_read_enable;
 
 //ID -> ID/EX
-wire [`OpCodeLen - 1 : 0] id_aluop;
-wire [`OpSelLen - 1 : 0] id_alusel;
-wire [`RegLen - 1 : 0] id_reg1, id_reg2, id_Imm, id_rd;
-wire id_rd_enable;
+wire [`AddrLen - 1 : 0] pc_id_idex,
+wire [`RegLen - 1 : 0] reg1_id_idex, reg2_id_idex, rd_id_idex;
+wire rd_enable_id_idex;
+wire [`OpCodeLen - 1 : 0] aluop_id_idex;
+wire [`OpSelLen - 1 : 0] alusel_id_idex;
+
+//ID -> StallCtrl
+wire stall_id;
 
 //ID/EX -> EX
-wire [`OpCodeLen - 1 : 0] ex_aluop;
-wire [`OpSelLen - 1 : 0] ex_alusel;
-wire [`RegLen - 1 : 0] ex_reg1, ex_reg2, ex_Imm, ex_rd;
-wire ex_rd_enable_i;
+wire [`AddrLen - 1 : 0] pc_idex_ex;
+wire [`RegLen - 1 : 0] reg1_idex_ex, reg2_idex_ex, rd_idex_ex;
+wire rd_enable_idex_ex;
+wire [`OpCodeLen - 1 : 0] aluop_idex_ex;
+wire [`OpSelLen - 1 : 0] alusel_idex_ex;
 
 //EX -> EX/MEM
-wire [`RegLen - 1 : 0] ex_rd_data;
-wire [`RegAddrLen - 1 : 0] ex_rd_addr;
-wire ex_rd_enable_o;
+wire [`RegLen - 1 : 0] rd_data_ex_exmem;
+wire [`RegAddrLen - 1 : 0] rd_addr_ex_exmem;
+wire rd_enable_ex_exmem;
+wire load_enable_ex_exmem;
+wire store_enable_ex_exmem;
+wire [`RegAddrLen - 1 : 0] mem_addr_ex_exmem;
+wire [`OpCodeLen - 1 : 0] load_store_type_ex_exmem;
+
+//EX -> PC_REG, IF/ID, ID/EX
+wire jump;
+wire [`AddrLen - 1 : 0] jump_addr;
 
 //EX/MEM -> MEM
-wire [`RegLen - 1 : 0] mem_rd_data_i;
-wire [`RegAddrLen - 1 : 0] mem_rd_addr_i;
-wire mem_rd_enable_i;
+wire [`RegLen - 1 : 0] rd_data_exmem_mem;
+wire [`RegAddrLen - 1 : 0] rd_addr_exmem_mem;
+wire rd_enable_exmem_mem;
+wire load_enable_exmem_mem;
+wire store_enable_exmem_mem;
+wire [`RegAddrLen - 1 : 0] mem_addr_exmem_mem;
+wire [`OpCodeLen - 1 : 0] load_store_type_exmem_mem;
 
 //MEM -> MEM/WB
-wire [`RegLen - 1 : 0] mem_rd_data_o;
-wire [`RegAddrLen - 1 : 0] mem_rd_addr_o;
-wire mem_rd_enable_o;
+wire [`RegLen - 1 : 0] rd_data_mem_memwb;
+wire [`RegAddrLen - 1 : 0] rd_addr_mem_memwb;
+wire rd_enable_mem_memwb;
+
+//MEM -> StallCtrl
+wire stall_mem;
+
+//MEM -> MemCtrl
+wire mem_needed;
+wire [`RegLen] mem_sdata;
+wire [`RegAddrLen] mem_addr;
+wire [2 : 0] mem_width;
+wire mem_read_write;
+
+//MemCtrl -> MEM
+wire mem_rdy;
+wire mem_busy;
+wire [`RegLen] mem_ldata;
 
 //MEM/WB -> Register
 wire write_enable;
 wire [`RegAddrLen - 1 : 0] write_addr;
 wire [`RegLen - 1 : 0] write_data;
 
-assign rom_addr_o = pc;
+//StallCtrl -> PC_REG/IF_ID/ID_EX/EX_MEM/MEM_WB
+wire [`PipelineNum - 1 : 0] stall_o;
 
 //Instantiation
-pc_reg pc_reg0(.clk(clk_in), .rst(rst_in), .pc(pc), .chip_enable(rom_ce_o));
+pc_reg pc_reg0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .pc(pc_pc_if),
+      .chip_enable(rom_ce_o),
+      .stall_i(stall_o),
+      .jump_i(jump),
+      .jump_addr_i(jump_addr)
+);
 
-if_id if_id0(.clk(clk_in), .rst(rst_in), .if_pc(pc), .if_inst(rom_data_i), .id_pc(id_pc_i), .id_inst(id_inst_i));
+If if0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .pc(pc_pc_if),
+      .chip_enable(rom_ce_o),
+      .pc_to_IFID(pc_if_ifid),
+      .inst_to_IFID(inst_if_ifid),
+      .stall_to_StallCtrl(stall_if),
+      .inst_data_from_MemCtrl(inst_data),
+      .inst_rdy_from_MemCtrl(inst_rdy),
+      .inst_busy_from_MemCtrl(inst_busy),
+      .inst_needed_to_MemCtrl(inst_needed),
+      .inst_addr_to_MemCtrl(inst_addr)
+);
 
-id id0(.rst(rst_in), .pc(id_pc_i), .inst(id_inst_i), .reg1_data_i(reg1_data), .reg2_data_i(reg2_data), 
-      .reg1_addr_o(reg1_addr), .reg1_read_enable(reg1_read_enable), .reg2_addr_o(reg2_addr), .reg2_read_enable(reg2_read_enable),
-      .reg1(id_reg1), .reg2(id_reg2), .Imm(id_Imm), .rd(id_rd), .rd_enable(id_rd_enable), .aluop(id_aluop), .alusel(id_alusel));
+if_id if_id0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .if_pc_i(pc_if_ifid),
+      .if_inst_i(inst_if_ifid),
+      .id_pc_o(pc_ifid_id),
+      .id_inst_o(inst_ifid_id),
+      .stall_i(stall_o),
+      .jump(jump)
+);
+
+id id0(
+      .rst(rst_im),
+      .pc(pc_ifid_id),
+      .inst(inst_ifid_id),
+      .reg1_data_i(reg1_data),
+      .reg2_data_i(reg2_data),
+      .reg1_addr_o(reg1_addr),
+      .reg1_read_enable(reg1_read_enable),
+      .reg2_addr_o(reg2_addr),
+      .reg2_read_enable(reg2_read_enable),
+
+      .pc_o(pc_id_idex),
+      .reg1(reg1_id_idex),
+      .reg2(reg2_id_idex),
+      .rd(rd_id_idex),
+      .rd_enable(rd_enable_id_idex),
+      .aluop(aluop_id_idex),
+      .alusel(alusel_id_idex),
+      .stall_id_o(stall_id)
+);
       
-register register0(.clk(clk_in), .rst(rst_in), 
-                  .write_enable(write_enable), .write_addr(write_addr), .write_data(write_data),
-                  .read_enable1(reg1_read_enable), .read_addr1(reg1_addr), .read_data1(reg1_data),
-                  .read_enable2(reg2_read_enable), .read_addr2(reg2_addr), .read_data2(reg2_data));
-id_ex id_ex0(.clk(clk_in), .rst(rst_in),
-            .id_reg1(id_reg1), .id_reg2(id_reg2), .id_Imm(id_Imm), .id_rd(id_rd), .id_rd_enable(id_rd_enable), .id_aluop(id_aluop), .id_alusel(id_alusel),
-            .ex_reg1(ex_reg1), .ex_reg2(ex_reg2), .ex_Imm(ex_Imm), .ex_rd(ex_rd), .ex_rd_enable(ex_rd_enable_i), .ex_aluop(ex_aluop), .ex_alusel(ex_alusel));
+register register0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .write_enable(write_enable),
+      .write_addr(write_addr),
+      .write_data(write_data),
+      .read_enable1(reg1_read_enable),
+      .read_addr1(reg1_addr),
+      .read_data1(reg1_data),
+      .read_enable2(reg2_read_enable),
+      .read_addr2(reg2_addr),
+      .read_data2(reg2_data)
+);
 
-ex ex0(.rst(rst_in),
-      .reg1(ex_reg1), .reg2(ex_reg2), .Imm(ex_Imm), .rd(ex_rd), .rd_enable(ex_rd_enable_i), .aluop(ex_aluop), .alusel(ex_alusel),
-      .rd_data_o(ex_rd_data), .rd_addr(ex_rd_addr), .rd_enable_o(ex_rd_enable_o));
+id_ex id_ex0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .pc_i(pc_id_idex),
+      .id_reg1(reg1_id_idex),
+      .id_reg2(reg2_id_idex),
+      .id_rd(rd_id_idex),
+      .id_rd_enable(rd_enable_id_idex),
+      .id_aluop(aluop_id_idex),
+      .id_alusel(alusel_id_idex),
+
+      .pc_o(pc_idex_ex),
+      .ex_reg1(reg1_idex_ex),
+      .ex_reg2(reg2_idex_ex),
+      .ex_rd(rd_idex_ex),
+      .ex_rd_enable(rd_enable_idex_ex),
+      .ex_aluop(aluop_idex_ex),
+      .ex_alusel(alusel_idex_ex),
+      .stall_i(stall_o),
+      .jump_i(jump)
+);
+
+ex ex0(
+      .rst(rst_im),
+      .pc(pc_idex_ex),
+      .reg1(reg1_idex_ex),
+      .reg2(reg2_idex_ex),
+      .rd(rd_idex_ex),
+      .rd_enable(rd_enable_idex_ex),
+      .aluop(aluop_idex_ex),
+      .alusel(alusel_idex_ex),
       
-ex_mem ex_mem0(.clk(clk_in), .rst(rst_in),
-              .ex_rd_data(ex_rd_data), .ex_rd_addr(ex_rd_addr), .ex_rd_enable(ex_rd_enable_o),
-              .mem_rd_data(mem_rd_data_i), .mem_rd_addr(mem_rd_addr_i), .mem_rd_enable(mem_rd_enable_i));
+      .rd_data_o(rd_data_ex_exmem),
+      .rd_addr(rd_addr_ex_exmem),
+      .rd_enable_o(rd_enable_ex_exmem),
+      .load_enable(load_enable_ex_exmem),
+      .store_enable(store_enable_ex_exmem),
+      .mem_addr(mem_addr_ex_exmem),
+      .load_store_type(load_store_type_ex_exmem),
+
+      .jump_enable(jump),
+      .jump_addr(jump_addr)
+);
+      
+ex_mem ex_mem0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .ex_rd_data(rd_data_ex_exmem),
+      .ex_rd_addr(rd_addr_ex_exmem),
+      .ex_rd_enable(rd_enable_ex_exmem),
+      .load_enable_i(load_enable_ex_exmem),
+      .store_enable_i(store_enable_ex_exmem),
+      .mem_addr_i(mem_addr_ex_exmem),
+      .load_store_type_i(load_store_type_ex_exmem),
+
+      .mem_rd_data(rd_data_exmem_mem),
+      .mem_rd_addr(rd_addr_exmem_mem),
+      .mem_rd_enable(rd_enable_exmem_mem),
+      .load_enable_o(load_enable_exmem_mem),
+      .store_enable_o(store_enable_exmem_mem),
+      .mem_addr_o(mem_addr_exmem_mem),
+      .load_store_type_o(load_store_type_exmem_mem),
+
+      .stall_i(stall_o)
+);
               
-mem mem0(.rst(rst_in),
-        .rd_data_i(mem_rd_data_i), .rd_addr_i(mem_rd_addr_i), .rd_enable_i(mem_rd_enable_i),
-        .rd_data_o(mem_rd_data_o), .rd_addr_o(mem_rd_addr_o), .rd_enable_o(mem_rd_enable_o));
-        
-mem_wb mem_wb0(.clk(clk_in), .rst(rst_in),
-              .mem_rd_data(mem_rd_data_o), .mem_rd_addr(mem_rd_addr_o), .mem_rd_enable(mem_rd_enable_o),
-              .wb_rd_data(write_data), .wb_rd_addr(write_addr), .wb_rd_enable(write_enable));
+mem mem0(
+      .rst(rst_im),
+      .rd_data_i(rd_data_exmem_mem),
+      .rd_addr_i(rd_addr_exmem_mem),
+      .rd_enable_i(rd_enable_exmem_mem),
+      .load_enable_i(load_enable_exmem_mem),
+      .store_enable_i(store_enable_exmem_mem),
+      .mem_addr_i(mem_addr_exmem_mem),
+      .load_store_type_i(load_store_type_exmem_mem),
+
+      .rd_data_o(rd_data_mem_memwb),
+      .rd_addr_o(rd_addr_mem_memwb),
+      .rd_enable_o(rd_enable_mem_memwb),
+
+      .stall(stall_mem),
+
+      .mem_rdy(mem_rdy),
+      .mem_busy(mem_busy),
+      .mem_ldata(mem_ldata),
+
+      .mem_needed(mem_needed),
+      .mem_sdata(mem_sdata),
+      .mem_addr(mem_addr),
+      .mem_width(mem_width),
+      .mem_read_write(mem_read_write)
+);
+
+mem_ctrl mem_ctrl0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .is_jump(jump && !stall_o[3]),
+
+      .inst_needed(inst_needed),
+      .inst_addr(inst_addr),
+
+      .inst_data(inst_data),
+      .inst_rdy(inst_rdy),
+      .inst_busy(inst_busy),
+
+      .mem_needed(mem_needed),
+      .mem_sdata(mem_sdata),
+      .mem_addr(mem_addr),
+      .mem_width(mem_width),
+      .mem_read_write(mem_read_write),
+
+      .mem_rdy(mem_rdy),
+      .mem_busy(mem_busy),
+      .mem_ldata(mem_ldata),
+
+      .ram_i(mem_din),
+      .ram_o(mem_dout),
+      .ram_addr(mem_a),
+      .ram_read_write(~mem_wr)
+);
+
+mem_wb mem_wb0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .mem_rd_data(rd_data_mem_memwb),
+      .mem_rd_addr(rd_addr_mem_memwb),
+      .mem_rd_enable(rd_enable_mem_memwb),
+      .wb_rd_data(write_data),
+      .wb_rd_addr(write_addr),
+      .wb_rd_enable(write_enable),
+      .stall_i(stall_o)
+);
+
+stall_ctrl stall_ctrl0(
+      .clk(clk_in),
+      .rst(rst_im),
+      .stall_if_i(stall_if),
+      .stall_id_i(stall_id),
+      .stall_mem_i(stall_mem),
+      .stall_o(stall_o),
+);
 
 endmodule
