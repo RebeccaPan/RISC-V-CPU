@@ -1,24 +1,5 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 10/28/2019 06:06:10 PM
-// Design Name: 
-// Module Name: id_ex
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: Pass the variables from stage ID to EX
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
+`include "config.vh"
 
 module id_ex(
     input wire clk,
@@ -35,26 +16,25 @@ module id_ex(
     input wire [`OpSelLen - 1 : 0] id_alusel,
 
     // to EX
-    output wire [`AddrLen - 1 : 0] pc_o,
+    output reg [`AddrLen - 1 : 0] pc_o,
     output reg [`RegLen - 1 : 0] ex_reg1,
     output reg [`RegLen - 1 : 0] ex_reg2,
     // output reg [`RegLen - 1 : 0] ex_Imm,
     output reg [`RegLen - 1 : 0] ex_rd,
     output reg ex_rd_enable,
     output reg [`OpCodeLen - 1 : 0] ex_aluop,
-    output reg [`OpSelLen - 1 : 0] ex_alusel
+    output reg [`OpSelLen - 1 : 0] ex_alusel,
 
     // from stall_ctrl
-    input wire [`PipelineNum - 1 : 0] stall_i;
+    input wire [`PipelineNum - 1 : 0] stall_i,
     
     // from EX
-    input wire jump_i;
+    input wire jump_i
 );
-
-assign pc_o = pc_i;
 
 always @ (posedge clk) begin
     if (rst == `ResetEnable || jump_i == 1'b1 || (stall_i[2] == 1'b1 && stall_i[3] == 1'b0)) begin
+        pc_o <= `ZERO_WORD;
         ex_reg1 <= `ZERO_WORD;
         ex_reg2 <= `ZERO_WORD;
         // ex_Imm  <= `ZERO_WORD;
@@ -64,6 +44,7 @@ always @ (posedge clk) begin
         ex_alusel <= `OpSelLen'h0;
     end
     else if (stall_i[2] == 1'b0) begin
+        pc_o <= pc_i;
         ex_reg1 <= id_reg1;
         ex_reg2 <= id_reg2;
         // ex_Imm <= id_Imm;

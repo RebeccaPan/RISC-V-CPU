@@ -1,5 +1,6 @@
 // RISCV32I CPU top module
 // port modification allowed for debugging purposes
+`include "config.vh"
 
 module cpu(
   input  wire             clk_in,	// system clock signal
@@ -25,117 +26,128 @@ module cpu(
 // - 0x30004 read: read clocks passed since cpu starts (in dword, 4 bytes)
 // - 0x30004 write: indicates program stop (will output '\0' through uart tx)
 
-wire rst_im;
-assign rst_im = rst_in || !rdy_in;
+wire rst_im = rst_in || !rdy_in;
 
-//PC -> IF
+// PC -> IF
 wire [`AddrLen - 1 : 0] pc_pc_if;
+wire chip_enable_pc_if;
 
-//IF -> IF/ID
+// IF -> IF/ID
 wire [`AddrLen - 1 : 0] pc_if_ifid;
 wire [`InstLen - 1 : 0] inst_if_ifid;
 
-//IF -> StallCtrl
+// IF -> StallCtrl
 wire stall_if;
 
-//IF(Icache) -> MemCtrl
+// IF(Icache) -> MemCtrl
 wire inst_needed;
-wire [`InstLen] inst_addr;
+wire [`InstLen - 1 : 0] inst_addr;
 
-//MemCtrl -> IF(Icache)
-wire [`InstLen] inst_data;
+// MemCtrl -> IF(Icache)
+wire [`InstLen - 1 : 0] inst_data;
 wire inst_rdy;
 wire inst_busy;
 
-//IF/ID -> ID
+// IF/ID -> ID
 wire [`AddrLen - 1 : 0] pc_ifid_id;
 wire [`InstLen - 1 : 0] inst_ifid_id;
 
-//Register -> ID
+// Register -> ID
 wire [`RegLen - 1 : 0] reg1_data;
 wire [`RegLen - 1 : 0] reg2_data;
 
-//ID -> Register
+// ID -> Register
 wire [`RegAddrLen - 1 : 0] reg1_addr;
-wire [`RegLen - 1 : 0] reg1_read_enable;
+wire reg1_read_enable;
 wire [`RegAddrLen - 1 : 0] reg2_addr;
-wire [`RegLen - 1 : 0] reg2_read_enable;
+wire reg2_read_enable;
 
-//ID -> ID/EX
-wire [`AddrLen - 1 : 0] pc_id_idex,
+// ID -> ID/EX
+wire [`AddrLen - 1 : 0] pc_id_idex;
 wire [`RegLen - 1 : 0] reg1_id_idex, reg2_id_idex, rd_id_idex;
 wire rd_enable_id_idex;
 wire [`OpCodeLen - 1 : 0] aluop_id_idex;
 wire [`OpSelLen - 1 : 0] alusel_id_idex;
 
-//ID -> StallCtrl
+// ID -> StallCtrl
 wire stall_id;
 
-//ID/EX -> EX
+// ID/EX -> EX
 wire [`AddrLen - 1 : 0] pc_idex_ex;
 wire [`RegLen - 1 : 0] reg1_idex_ex, reg2_idex_ex, rd_idex_ex;
 wire rd_enable_idex_ex;
 wire [`OpCodeLen - 1 : 0] aluop_idex_ex;
 wire [`OpSelLen - 1 : 0] alusel_idex_ex;
 
-//EX -> EX/MEM
+// EX -> EX/MEM
 wire [`RegLen - 1 : 0] rd_data_ex_exmem;
 wire [`RegAddrLen - 1 : 0] rd_addr_ex_exmem;
 wire rd_enable_ex_exmem;
 wire load_enable_ex_exmem;
 wire store_enable_ex_exmem;
-wire [`RegAddrLen - 1 : 0] mem_addr_ex_exmem;
+wire [`AddrLen - 1 : 0] mem_addr_ex_exmem;
 wire [`OpCodeLen - 1 : 0] load_store_type_ex_exmem;
 
-//EX -> PC_REG, IF/ID, ID/EX
-wire jump;
+// EX -> PC_REG, IF/ID, ID/EX
+wire jump_ex_multi;
 wire [`AddrLen - 1 : 0] jump_addr;
 
-//EX/MEM -> MEM
+// EX/MEM -> MEM
 wire [`RegLen - 1 : 0] rd_data_exmem_mem;
 wire [`RegAddrLen - 1 : 0] rd_addr_exmem_mem;
 wire rd_enable_exmem_mem;
 wire load_enable_exmem_mem;
 wire store_enable_exmem_mem;
-wire [`RegAddrLen - 1 : 0] mem_addr_exmem_mem;
+wire [`AddrLen - 1 : 0] mem_addr_exmem_mem;
 wire [`OpCodeLen - 1 : 0] load_store_type_exmem_mem;
 
-//MEM -> MEM/WB
+// MEM -> MEM/WB
 wire [`RegLen - 1 : 0] rd_data_mem_memwb;
 wire [`RegAddrLen - 1 : 0] rd_addr_mem_memwb;
 wire rd_enable_mem_memwb;
 
-//MEM -> StallCtrl
+// MEM -> StallCtrl
 wire stall_mem;
 
-//MEM -> MemCtrl
+// MEM -> MemCtrl
 wire mem_needed;
-wire [`RegLen] mem_sdata;
-wire [`RegAddrLen] mem_addr;
+wire [`RegLen - 1 : 0] mem_sdata;
+wire [`AddrLen - 1 : 0] mem_addr;
 wire [2 : 0] mem_width;
 wire mem_read_write;
 
-//MemCtrl -> MEM
+// MemCtrl -> MEM
 wire mem_rdy;
 wire mem_busy;
-wire [`RegLen] mem_ldata;
+wire [`RegLen - 1 : 0] mem_ldata;
 
-//MEM/WB -> Register
+// MEM/WB -> Register
 wire write_enable;
 wire [`RegAddrLen - 1 : 0] write_addr;
 wire [`RegLen - 1 : 0] write_data;
 
-//StallCtrl -> PC_REG/IF_ID/ID_EX/EX_MEM/MEM_WB
+// StallCtrl -> PC_REG/IF_ID/ID_EX/EX_MEM/MEM_WB
 wire [`PipelineNum - 1 : 0] stall_o;
+
+// EX -> ID forwarding
+wire ex_fw;
+wire [`RegLen - 1 : 0] ex_fw_data;
+wire [`RegAddrLen - 1 : 0] ex_fw_addr;
+wire is_load_ex_id;
+
+// MEM -> ID forwarding
+wire mem_fw;
+wire [`RegLen - 1 : 0] mem_fw_data;
+wire [`RegAddrLen - 1 : 0] mem_fw_addr;
 
 //Instantiation
 pc_reg pc_reg0(
       .clk(clk_in),
       .rst(rst_im),
       .pc(pc_pc_if),
-      .chip_enable(rom_ce_o),
+      .chip_enable(chip_enable_pc_if),
       .stall_i(stall_o),
-      .jump_i(jump),
+      .jump_i(jump_ex_multi),
       .jump_addr_i(jump_addr)
 );
 
@@ -143,7 +155,7 @@ If if0(
       .clk(clk_in),
       .rst(rst_im),
       .pc(pc_pc_if),
-      .chip_enable(rom_ce_o),
+      .chip_enable(chip_enable_pc_if),
       .pc_to_IFID(pc_if_ifid),
       .inst_to_IFID(inst_if_ifid),
       .stall_to_StallCtrl(stall_if),
@@ -162,11 +174,19 @@ if_id if_id0(
       .id_pc_o(pc_ifid_id),
       .id_inst_o(inst_ifid_id),
       .stall_i(stall_o),
-      .jump(jump)
+      .jump_i(jump_ex_multi)
 );
 
 id id0(
       .rst(rst_im),
+      .ex_fw(ex_fw),
+      .ex_fw_data(ex_fw_data),
+      .ex_fw_addr(ex_fw_addr),
+      .is_load(is_load_ex_id),
+      .mem_fw(mem_fw),
+      .mem_fw_data(mem_fw_data),
+      .mem_fw_addr(mem_fw_addr),
+
       .pc(pc_ifid_id),
       .inst(inst_ifid_id),
       .reg1_data_i(reg1_data),
@@ -219,7 +239,7 @@ id_ex id_ex0(
       .ex_aluop(aluop_idex_ex),
       .ex_alusel(alusel_idex_ex),
       .stall_i(stall_o),
-      .jump_i(jump)
+      .jump_i(jump_ex_multi)
 );
 
 ex ex0(
@@ -240,8 +260,13 @@ ex ex0(
       .mem_addr(mem_addr_ex_exmem),
       .load_store_type(load_store_type_ex_exmem),
 
-      .jump_enable(jump),
-      .jump_addr(jump_addr)
+      .jump_enable(jump_ex_multi),
+      .jump_addr(jump_addr),
+
+      .ex_fw(ex_fw),
+      .ex_fw_data(ex_fw_data),
+      .ex_fw_addr(ex_fw_addr),
+      .is_load(is_load_ex_id)
 );
       
 ex_mem ex_mem0(
@@ -290,13 +315,20 @@ mem mem0(
       .mem_sdata(mem_sdata),
       .mem_addr(mem_addr),
       .mem_width(mem_width),
-      .mem_read_write(mem_read_write)
+      .mem_read_write(mem_read_write),
+
+      .mem_fw(mem_fw),
+      .mem_fw_data(mem_fw_data),
+      .mem_fw_addr(mem_fw_addr)
 );
+
+wire temp_rw_wr;
+assign mem_wr = ~temp_rw_wr;
 
 mem_ctrl mem_ctrl0(
       .clk(clk_in),
       .rst(rst_im),
-      .is_jump(jump && !stall_o[3]),
+      .is_jump(jump_ex_multi && !stall_o[3]),
 
       .inst_needed(inst_needed),
       .inst_addr(inst_addr),
@@ -318,7 +350,7 @@ mem_ctrl mem_ctrl0(
       .ram_i(mem_din),
       .ram_o(mem_dout),
       .ram_addr(mem_a),
-      .ram_read_write(~mem_wr)
+      .ram_read_write(temp_rw_wr)
 );
 
 mem_wb mem_wb0(
@@ -339,7 +371,7 @@ stall_ctrl stall_ctrl0(
       .stall_if_i(stall_if),
       .stall_id_i(stall_id),
       .stall_mem_i(stall_mem),
-      .stall_o(stall_o),
+      .stall_o(stall_o)
 );
 
 endmodule

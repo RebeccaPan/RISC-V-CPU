@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "config.vh"
 
 module stall_ctrl(
     input wire clk,
@@ -22,7 +23,7 @@ always @ (*) begin
         end else if (stall_id_i == 1) begin
             stall_o <= `PipelineNum'b00111;
         end else if (stall_if_i == 1) begin
-            stall_0 <= `PipelineNum'b00011;
+            stall_o <= `PipelineNum'b00011;
         end
     end
 end

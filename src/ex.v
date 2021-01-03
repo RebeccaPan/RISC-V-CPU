@@ -1,24 +1,5 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 10/28/2019 06:12:53 PM
-// Design Name: 
-// Module Name: ex
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
+`include "config.vh"
 
 module ex(
     input wire rst,
@@ -40,12 +21,18 @@ module ex(
     output reg rd_enable_o,
     output reg load_enable,
     output reg store_enable,
-    output reg [`RegAddrLen - 1 : 0] mem_addr, // length = 5?? TODO
+    output reg [`AddrLen - 1 : 0] mem_addr, // 32
     output wire [`OpCodeLen - 1 : 0] load_store_type, // 4
 
     // to PC_REG, IF/ID, ID/EX
     output reg jump_enable,
-    output reg [`AddrLen - 1 : 0] jump_addr // 32
+    output reg [`AddrLen - 1 : 0] jump_addr, // 32
+
+    // to ID for forwarding
+    output reg ex_fw,
+    output reg [`RegLen - 1 : 0] ex_fw_data,
+    output reg [`RegAddrLen - 1 : 0] ex_fw_addr,
+    output reg is_load
 );
 
 reg [`RegLen - 1 : 0] res;
@@ -63,23 +50,23 @@ always @ (*) begin
         jump_addr = `ZERO_WORD;
     end
     else begin
+        load_enable = 1'b0;
+        store_enable = 1'b0;
+        jump_enable = `JumpDisable;
         // alusel work here just to simplify the code
         if (alusel == `LOAD_OP) begin
             load_enable = 1'b1;
             mem_addr = reg1 + reg2;
-            res = reg1 + reg2; // base + offset
-        end
-        if (alusel == `STORE_OP) begin
+            res = `ZERO_WORD;
+        end else if (alusel == `STORE_OP) begin
             store_enable = 1'b1;
-            mem_addr = reg1 + reg2;
-            res = reg1 + reg2; // base + offset
-        end
-        if (alusel == `BRANCH_OP) begin
-            jump_enable = `JumpEnable;
-            jump_addr = reg1 + reg2;
+            mem_addr = reg1; // reg1 + Imm
+            res = reg2;
         end
 
         if (alusel == `BRANCH_OP) begin
+            // jump_enable = `JumpDisable;
+            jump_addr = reg1 + reg2;
             case (aluop)
                 `EXE_BEQ:  if (reg1 == reg2) jump_enable = `JumpEnable;
                 `EXE_BNE:  if (reg1 != reg2) jump_enable = `JumpEnable;
@@ -101,19 +88,23 @@ always @ (*) begin
                 `EXE_OR:  res = reg1 |  reg2; 
                 `EXE_AND: res = reg1 &  reg2;
 
+                `EXE_AUIPC: begin
+                    res = pc + reg2;
+                    jump_enable = `JumpEnable;
+                    jump_addr = pc + reg2; // pc + Imm
+                end
                 `EXE_JALR: begin
                     res = pc + 4;
                     jump_enable = `JumpEnable;
-                    jump_addr = reg1 + reg2;
+                    jump_addr = pc + reg1 + reg2; // pc + rs1 + Imm
                 end
                 `EXE_JAL: begin
                     res = pc + 4;
                     jump_enable = `JumpEnable;
-                    jump_addr = reg1 + reg2;
+                    jump_addr = pc + reg2; // pc + Imm
                 end
 
                 `EXE_LUI: res = reg2;
-                `EXE_AUIPC: res = pc + reg2;
                 // Load and Store
                 /*`EXE_LB:  
                 `EXE_LH:  
@@ -137,18 +128,28 @@ always @ (*) begin
         rd_enable_o = `WriteDisable;
         // load_enable = 1'b0;
         // store_enable = 1'b0;
-        mem_addr = [`RegAddrLen - 1 : 0]'b0;
+        mem_addr = `AddrLen'b0;
         // jump_enable = `JumpDisable;
         // jump_addr = `AddrLen'h0;
+        
+        ex_fw = 1'b0;
+        ex_fw_addr = `RegLen'b0;
+        ex_fw_data = `ZERO_WORD;
+        is_load = 1'b0;
     end
     else begin 
         rd_data_o = res;
         rd_addr = rd;
         rd_enable_o = rd_enable;
+
+        ex_fw = 1'b1;
+        ex_fw_addr = rd;
+        ex_fw_data = res;
+        is_load = (alusel == `LOAD_OP) ? 1'b1 : 1'b0;
         // case (alusel)
         //     `LOGIC_OP:  rd_data_o = res;
-        //     `LOAD_OP:   // TODO
-        //     `STORE_OP:  // TODO
+        //     `LOAD_OP:   // do nothing
+        //     `STORE_OP:  // do nothing
         //     `JUMP_OP || BRANCH_OP: rd_data_o = res;
         //     default: rd_data_o = `ZERO_WORD;
         // endcase

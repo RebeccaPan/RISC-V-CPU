@@ -1,24 +1,5 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 10/29/2019 12:03:13 AM
-// Design Name: 
-// Module Name: mem_wb
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
+`include "config.vh"
 
 module mem_wb(
     input clk,
@@ -35,8 +16,8 @@ module mem_wb(
     output reg wb_rd_enable,
 
     // from stall_ctrl
-    input wire [`PipelineNum - 1 : 0] stall_i,
-    );
+    input wire [`PipelineNum - 1 : 0] stall_i
+);
 
 always @ (posedge clk) begin
     if (rst == `ResetEnable || stall_i[4] == 1'b1) begin

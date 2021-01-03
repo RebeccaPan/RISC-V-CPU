@@ -1,24 +1,5 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 10/28/2019 08:31:41 PM
-// Design Name: 
-// Module Name: mem
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
-
+`include "config.vh"
 
 module mem(
     input rst,
@@ -30,7 +11,7 @@ module mem(
 
     input wire load_enable_i,
     input wire store_enable_i,
-    input wire [`RegAddrLen - 1 : 0] mem_addr_i, // length = 5?? TODO
+    input wire [`AddrLen - 1 : 0] mem_addr_i, // 32
     input wire [`OpCodeLen - 1 : 0] load_store_type_i, // 4
 
     // to MEM/WB
@@ -44,14 +25,18 @@ module mem(
     // from mem_ctrl
     input wire mem_rdy,
     input wire mem_busy,
-    input wire [`RegLen] mem_ldata,
+    input wire [`RegLen - 1 : 0] mem_ldata,
 
     // to mem_ctrl
     output reg mem_needed,
-    output reg [`RegLen] mem_sdata,
-    output reg [`RegAddrLen] mem_addr,
+    output reg [`RegLen - 1 : 0] mem_sdata,
+    output reg [`AddrLen - 1 : 0] mem_addr,
     output reg [2 : 0] mem_width, // at most 8
-    output reg mem_read_write // 1 for read and 0 for write
+    output reg mem_read_write, // 1 for read and 0 for write
+
+    output reg mem_fw,
+    output reg [`RegLen - 1 : 0] mem_fw_data,
+    output reg [`RegAddrLen - 1 : 0] mem_fw_addr
 );
 
 always @ (*) begin
@@ -62,7 +47,7 @@ always @ (*) begin
 
         mem_needed <= 1'b0;
         mem_sdata <= `RegLen'b0;
-        mem_addr <= `RegAddrLen'b0;
+        mem_addr <= `AddrLen'b0;
         mem_width <= 3'b0;
         mem_read_write <= 1'b0; 
         stall <= 1'b0;
@@ -103,15 +88,15 @@ always @ (*) begin
                     mem_read_write <= 1'b0;
                     case (load_store_type_i)
                         `EXE_SW: begin
-                            memsdata <= rd_data_i;
+                            mem_sdata <= rd_data_i;
                             mem_width <= 3'b100;
                         end
                         `EXE_SH: begin
-                            memsdata <= rd_data_i[15:0];
+                            mem_sdata <= rd_data_i[15:0];
                             mem_width <= 3'b010;
                         end
                         `EXE_SB: begin
-                            memsdata <= rd_data_i[7:0];
+                            mem_sdata <= rd_data_i[7:0];
                             mem_width <= 3'b001;
                         end
                     endcase
