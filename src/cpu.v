@@ -64,7 +64,7 @@ wire reg2_read_enable;
 
 // ID -> ID/EX
 wire [`AddrLen - 1 : 0] pc_id_idex;
-wire [`RegLen - 1 : 0] reg1_id_idex, reg2_id_idex, rd_id_idex;
+wire [`RegLen - 1 : 0] reg1_id_idex, reg2_id_idex, rd_id_idex, br_offset_id_idex;
 wire rd_enable_id_idex;
 wire [`OpCodeLen - 1 : 0] aluop_id_idex;
 wire [`OpSelLen - 1 : 0] alusel_id_idex;
@@ -74,7 +74,7 @@ wire stall_id;
 
 // ID/EX -> EX
 wire [`AddrLen - 1 : 0] pc_idex_ex;
-wire [`RegLen - 1 : 0] reg1_idex_ex, reg2_idex_ex, rd_idex_ex;
+wire [`RegLen - 1 : 0] reg1_idex_ex, reg2_idex_ex, rd_idex_ex, br_offset_idex_ex;
 wire rd_enable_idex_ex;
 wire [`OpCodeLen - 1 : 0] aluop_idex_ex;
 wire [`OpSelLen - 1 : 0] alusel_idex_ex;
@@ -147,7 +147,7 @@ pc_reg pc_reg0(
       .pc(pc_pc_if),
       .chip_enable(chip_enable_pc_if),
       .stall_i(stall_o),
-      .jump_i(jump_ex_multi),
+      .jump_i(jump_ex_multi && !stall_o[3]),
       .jump_addr_i(jump_addr)
 );
 
@@ -174,7 +174,7 @@ if_id if_id0(
       .id_pc_o(pc_ifid_id),
       .id_inst_o(inst_ifid_id),
       .stall_i(stall_o),
-      .jump_i(jump_ex_multi)
+      .jump_i(jump_ex_multi && !stall_o[3])
 );
 
 id id0(
@@ -199,6 +199,7 @@ id id0(
       .pc_o(pc_id_idex),
       .reg1(reg1_id_idex),
       .reg2(reg2_id_idex),
+      .br_offset(br_offset_id_idex),
       .rd(rd_id_idex),
       .rd_enable(rd_enable_id_idex),
       .aluop(aluop_id_idex),
@@ -226,6 +227,7 @@ id_ex id_ex0(
       .pc_i(pc_id_idex),
       .id_reg1(reg1_id_idex),
       .id_reg2(reg2_id_idex),
+      .id_br_offset(br_offset_id_idex),
       .id_rd(rd_id_idex),
       .id_rd_enable(rd_enable_id_idex),
       .id_aluop(aluop_id_idex),
@@ -234,12 +236,13 @@ id_ex id_ex0(
       .pc_o(pc_idex_ex),
       .ex_reg1(reg1_idex_ex),
       .ex_reg2(reg2_idex_ex),
+      .ex_br_offset(br_offset_idex_ex),
       .ex_rd(rd_idex_ex),
       .ex_rd_enable(rd_enable_idex_ex),
       .ex_aluop(aluop_idex_ex),
       .ex_alusel(alusel_idex_ex),
       .stall_i(stall_o),
-      .jump_i(jump_ex_multi)
+      .jump_i(jump_ex_multi && !stall_o[3])
 );
 
 ex ex0(
@@ -247,6 +250,7 @@ ex ex0(
       .pc(pc_idex_ex),
       .reg1(reg1_idex_ex),
       .reg2(reg2_idex_ex),
+      .br_offset(br_offset_idex_ex),
       .rd(rd_idex_ex),
       .rd_enable(rd_enable_idex_ex),
       .aluop(aluop_idex_ex),

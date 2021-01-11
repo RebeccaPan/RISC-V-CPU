@@ -33,7 +33,7 @@ module id(
     output wire [`AddrLen - 1 : 0] pc_o,
     output reg [`RegLen - 1 : 0] reg1,
     output reg [`RegLen - 1 : 0] reg2,
-    // output reg [`RegLen - 1 : 0] Imm, // not used as output?
+    output reg [`RegLen - 1 : 0] br_offset, // = imm, used only in BRANCH_OP / STORE_OP
     output reg [`RegLen - 1 : 0] rd,
     output reg rd_enable,
     output reg [`OpCodeLen - 1 : 0] aluop, // 4, customized
@@ -45,189 +45,203 @@ module id(
     );
 
 assign pc_o = pc;
-wire [`OpLen - 1 : 0] opcode = inst[`OpLen - 1 : 0]; // 7
+wire [`OpLen - 1 : 0] opcode;
+assign opcode = inst[`OpLen - 1 : 0]; // 7
 reg [`RegLen - 1 : 0] Imm;
 reg useImmInstead;
 
 //Decode: Get opcode, imm, rd, and the addr of rs1 & rs2
 always @ (*) begin
     if (rst == `ResetEnable) begin
-        reg1_addr_o = `RegAddrLen'b0;
-        reg2_addr_o = `RegAddrLen'b0;
+        reg1_addr_o <= `RegAddrLen'b0;
+        reg2_addr_o <= `RegAddrLen'b0;
     end else begin
-        reg1_addr_o = inst[19:15];
-        reg2_addr_o = inst[24:20];
+        reg1_addr_o <= inst[19:15];
+        reg2_addr_o <= inst[24:20];
     end
 end
 
-always @ (*) begin
-    // init val
-    Imm = `ZERO_WORD;
-    rd_enable = `WriteDisable;
-    reg1_read_enable = `ReadDisable;
-    reg2_read_enable = `ReadDisable;
-    rd = `RegAddrLen'b0;
-    aluop = `OpCodeLen'b0;
-    alusel = `OpSelLen'b0;
-    useImmInstead = 1'b0;
-    stall_id_o = 1'b0;
-    // addr_base = `ZERO_WORD;
-    
-    // case analysis on last 7 bits
-    case (opcode)
-        `R_OP: begin
-            useImmInstead = 1'b0;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadEnable;
-            rd = inst[11:7];
-            case (inst[14:12])
-                `ADD_SUB: aluop = (inst[30] == 1'b0)? `EXE_ADD : `EXE_SUB;
-                `SLL:     aluop = `EXE_SLL;
-                `SLT:     aluop = `EXE_SLT;
-                `SLTU:    aluop = `EXE_SLTU;
-                `XOR:     aluop = `EXE_XOR;
-                `SRL_SRA: aluop = (inst[30] == 1'b0)? `EXE_SRL : `EXE_SRA;
-                `OR:      aluop = `EXE_OR;
-                `AND:     aluop = `EXE_AND;
-            endcase
-            alusel = `LOGIC_OP;
-        end
-        `I_OP_JALR: begin
-            Imm = {{21{inst[31]}}, inst[30:20]};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            aluop = `EXE_JALR;
-            alusel = `JUMP_OP;
-        end
-        `I_OP_L: begin
-            Imm = {{21{inst[31]}}, inst[30:20]};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            case (inst[14:12])
-                `LB:  aluop = `EXE_LB;
-                `LH:  aluop = `EXE_LH;
-                `LW:  aluop = `EXE_LW;
-                `LBU: aluop = `EXE_LBU;
-                `LHU: aluop = `EXE_LHU;
-            endcase
-            alusel = `LOAD_OP;
-        end
-        `I_OP_Other: begin
-            Imm = {{21{inst[31]}}, inst[30:20]};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            case (inst[14:12])
-                `ADD_SUB: aluop = `EXE_ADD; // ADDI; There's no SUBI
-                `SLT:     aluop = `EXE_SLT; // SLTI
-                `SLTU:    aluop = `EXE_SLTU;// SLTIU
-                `XOR:     aluop = `EXE_XOR; // XORI
-                `OR:      aluop = `EXE_OR;  // ORI
-                `AND:     aluop = `EXE_AND; // ANDI
-                `SLL:     aluop = `EXE_SLL; // SLLI
-                `SRL_SRA: aluop = (inst[30] == 1'b0)? `EXE_SRL : `EXE_SRA; // SRLI, SRAI
-            endcase
-            alusel = `LOGIC_OP;
-        end
-        `S_OP: begin
-            Imm = {{21{inst[31]}}, inst[30:25], inst[11:7]};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteDisable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadEnable;
-            case (inst[14:12])
-                `SB: aluop = `EXE_SB;
-                `SH: aluop = `EXE_SH;
-                `SW: aluop = `EXE_SW;
-            endcase
-            alusel = `STORE_OP;
-        end
-        `B_OP: begin
-            Imm = {{20{inst[31]}}, inst[7], inst[30:25], inst[11:8], 1'b1};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteDisable;
-            reg1_read_enable = `ReadEnable;
-            reg2_read_enable = `ReadEnable;
-            case (inst[14:12])
-                `BEQ:  aluop = `EXE_BEQ;
-                `BNE:  aluop = `EXE_BNE;
-                `BLT:  aluop = `EXE_BLT;
-                `BGE:  aluop = `EXE_BGE;
-                `BLTU: aluop = `EXE_BLTU;
-                `BGEU: aluop = `EXE_BGEU;
-            endcase
-            alusel = `BRANCH_OP;
-        end
-        `U_OP_LUI: begin
-            Imm = {inst[31:12], 12'b0};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadDisable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            aluop = `EXE_LUI;
-            alusel = `LOGIC_OP; // not exactly logic but since no load/store needed...
-        end
-        `U_OP_AUIPC: begin
-            Imm = {inst[31:12], 12'b0};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadDisable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            aluop = `EXE_AUIPC;
-            alusel = `JUMP_OP;
-        end
-        `J_OP: begin // JAL
-            Imm = {{12{inst[31]}}, inst[19:12], inst[20], inst[30:25], inst[24:21], 1'b0};
-            useImmInstead = 1'b1;
-            rd_enable = `WriteEnable;
-            reg1_read_enable = `ReadDisable;
-            reg2_read_enable = `ReadDisable;
-            rd = inst[11:7];
-            aluop = `EXE_JAL;
-            alusel = `JUMP_OP;
-        end
-    endcase
-end
-
-//Get rs1
-always @ (*) begin
-    if (rst == `ResetEnable || reg1_read_enable == `ReadDisable) begin
-        reg1 = `ZERO_WORD;
-    end else if (is_load == 1'b1 && ex_fw == 1'b1 && ex_fw_addr == reg1_addr_o) begin
-        reg1 = `ZERO_WORD;
-        stall_id_o = 1'b1;
-    end else if (is_load == 1'b0 && ex_fw == 1'b1 && ex_fw_addr == reg1_addr_o) begin
-        reg1 = ex_fw_data;
-    end else if (mem_fw == 1'b1 && mem_fw_addr == reg1_addr_o) begin
-        reg1 = mem_fw_data;
-    end else begin
-        reg1 = (alusel == `STORE_OP) ? (reg1_data_i + Imm) : reg1_data_i;
-    end
-end
-
-//Get rs2
 always @ (*) begin
     if (rst == `ResetEnable) begin
-        reg2 = `ZERO_WORD;
-    end else if (reg2_read_enable == `ReadDisable) begin
-        reg2 = (useImmInstead == 1'b0) ? `ZERO_WORD : Imm;
-    end else if (ex_fw == 1'b1 && ex_fw_addr == reg2_addr_o) begin
-        reg2 = ex_fw_data;
-    end else if (mem_fw == 1'b1 && mem_fw_addr == reg2_addr_o) begin
-        reg2 = mem_fw_data;
+        Imm <= `ZERO_WORD;
+        rd_enable <= `WriteDisable;
+        reg1_read_enable <= `ReadDisable;
+        reg2_read_enable <= `ReadDisable;
+        rd <= `RegAddrLen'b0;
+        aluop <= `OpCodeLen'b0;
+        alusel <= `OpSelLen'b0;
+        useImmInstead <= 1'b0;
     end else begin
-        reg2 = reg2_data_i;
+        Imm <= `ZERO_WORD;
+        rd_enable <= `WriteDisable;
+        reg1_read_enable <= `ReadDisable;
+        reg2_read_enable <= `ReadDisable;
+        rd <= `RegAddrLen'b0;
+        aluop <= `OpCodeLen'b0;
+        alusel <= `OpSelLen'b0;
+        useImmInstead <= 1'b0;
+        // case analysis on last 7 bits
+        case (opcode)
+            `R_OP: begin
+                useImmInstead <= 1'b0;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadEnable;
+                rd <= inst[11:7];
+                case (inst[14:12])
+                    `ADD_SUB: aluop <= (inst[30] == 1'b0)? `EXE_ADD : `EXE_SUB;
+                    `SLL:     aluop <= `EXE_SLL;
+                    `SLT:     aluop <= `EXE_SLT;
+                    `SLTU:    aluop <= `EXE_SLTU;
+                    `XOR:     aluop <= `EXE_XOR;
+                    `SRL_SRA: aluop <= (inst[30] == 1'b0)? `EXE_SRL : `EXE_SRA;
+                    `OR:      aluop <= `EXE_OR;
+                    `AND:     aluop <= `EXE_AND;
+                endcase
+                alusel <= `LOGIC_OP;
+            end
+            `I_OP_JALR: begin
+                Imm <= {{21{inst[31]}}, inst[30:20]};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                aluop <= `EXE_JALR;
+                alusel <= `JUMP_OP;
+            end
+            `I_OP_L: begin
+                Imm <= {{21{inst[31]}}, inst[30:20]};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                case (inst[14:12])
+                    `LB:  aluop <= `EXE_LB;
+                    `LH:  aluop <= `EXE_LH;
+                    `LW:  aluop <= `EXE_LW;
+                    `LBU: aluop <= `EXE_LBU;
+                    `LHU: aluop <= `EXE_LHU;
+                endcase
+                alusel <= `LOAD_OP;
+            end
+            `I_OP_Other: begin
+                Imm <= (inst[14:12] == `SLL || inst[14:12] == `SRL_SRA) ? {27'b0, inst[24:20]} : {{21{inst[31]}}, inst[30:20]};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                case (inst[14:12])
+                    `ADD_SUB: aluop <= `EXE_ADD; // ADDI; There's no SUBI
+                    `SLT:     aluop <= `EXE_SLT; // SLTI
+                    `SLTU:    aluop <= `EXE_SLTU;// SLTIU
+                    `XOR:     aluop <= `EXE_XOR; // XORI
+                    `OR:      aluop <= `EXE_OR;  // ORI
+                    `AND:     aluop <= `EXE_AND; // ANDI
+                    `SLL:     aluop <= `EXE_SLL; // SLLI
+                    `SRL_SRA: aluop <= (inst[30] == 1'b0)? `EXE_SRL : `EXE_SRA; // SRLI, SRAI
+                endcase
+                alusel <= `LOGIC_OP;
+            end
+            `S_OP: begin
+                br_offset <= {{21{inst[31]}}, inst[30:25], inst[11:7]};
+                useImmInstead <= 1'b0;
+                rd_enable <= `WriteDisable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadEnable;
+                case (inst[14:12])
+                    `SB: aluop <= `EXE_SB;
+                    `SH: aluop <= `EXE_SH;
+                    `SW: aluop <= `EXE_SW;
+                endcase
+                alusel <= `STORE_OP;
+            end
+            `B_OP: begin
+                br_offset <= {{20{inst[31]}}, inst[7], inst[30:25], inst[11:8], 1'b0};
+                useImmInstead <= 1'b0;
+                rd_enable <= `WriteDisable;
+                reg1_read_enable <= `ReadEnable;
+                reg2_read_enable <= `ReadEnable;
+                case (inst[14:12])
+                    `BEQ:  aluop <= `EXE_BEQ;
+                    `BNE:  aluop <= `EXE_BNE;
+                    `BLT:  aluop <= `EXE_BLT;
+                    `BGE:  aluop <= `EXE_BGE;
+                    `BLTU: aluop <= `EXE_BLTU;
+                    `BGEU: aluop <= `EXE_BGEU;
+                endcase
+                alusel <= `BRANCH_OP;
+            end
+            `U_OP_LUI: begin
+                Imm <= {inst[31:12], 12'b0};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadDisable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                aluop <= `EXE_LUI;
+                alusel <= `LOGIC_OP; // not exactly logic but since no load/store needed...
+            end
+            `U_OP_AUIPC: begin
+                Imm <= {inst[31:12], 12'b0};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadDisable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                aluop <= `EXE_AUIPC;
+                alusel <= `JUMP_OP;
+            end
+            `J_OP: begin // JAL
+                Imm <= {{12{inst[31]}}, inst[19:12], inst[20], inst[30:25], inst[24:21], 1'b0};
+                useImmInstead <= 1'b1;
+                rd_enable <= `WriteEnable;
+                reg1_read_enable <= `ReadDisable;
+                reg2_read_enable <= `ReadDisable;
+                rd <= inst[11:7];
+                aluop <= `EXE_JAL;
+                alusel <= `JUMP_OP;
+            end
+        endcase
+    end
+end
+
+//Get rs1 & rs2
+always @ (*) begin
+    if (rst == `ResetEnable) begin
+        stall_id_o <= 1'b0;
+        reg1 <= `ZERO_WORD;
+        reg2 <= `ZERO_WORD;
+    end
+    else begin
+        stall_id_o <= 1'b0;
+        if (rst == `ResetEnable || reg1_read_enable == `ReadDisable) begin
+            reg1 <= `ZERO_WORD;
+        end else if (is_load == 1'b1 && ex_fw == 1'b1 && ex_fw_addr == reg1_addr_o) begin
+            reg1 <= `ZERO_WORD;
+            stall_id_o <= 1'b1;
+        end else if (is_load == 1'b0 && ex_fw == 1'b1 && ex_fw_addr == reg1_addr_o) begin
+            reg1 <= ex_fw_data;
+        end else if (mem_fw == 1'b1 && mem_fw_addr == reg1_addr_o) begin
+            reg1 <= mem_fw_data;
+        end else begin
+            reg1 <= reg1_data_i;
+        end
+
+        if (rst == `ResetEnable || reg2_read_enable == `ReadDisable) begin
+            reg2 <= (useImmInstead == 1'b0) ? `ZERO_WORD : Imm;
+        end else if (is_load == 1'b1 && ex_fw == 1'b1 && ex_fw_addr == reg2_addr_o) begin
+            reg2 <= `ZERO_WORD;
+            stall_id_o <= 1'b1;
+        end else if (is_load == 1'b0 && ex_fw == 1'b1 && ex_fw_addr == reg2_addr_o) begin
+            reg2 <= ex_fw_data;
+        end else if (mem_fw == 1'b1 && mem_fw_addr == reg2_addr_o) begin
+            reg2 <= mem_fw_data;
+        end else begin
+            reg2 <= reg2_data_i;
+        end
     end
 end
 

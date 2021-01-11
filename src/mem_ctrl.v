@@ -38,6 +38,7 @@ module mem_ctrl(
 );
 
 reg  [2 : 0] cur_stage;
+wire [2 : 0] cycle_num;
 reg  [7 : 0] l_data[3 : 0];
 wire [7 : 0] s_data[3 : 0];
 assign s_data[0] = mem_sdata[7 :0 ];
@@ -48,11 +49,6 @@ assign s_data[3] = mem_sdata[31:24];
 assign ram_o = (cur_stage == 3'b100) ? `ZERO_WORD : s_data[cur_stage];
 assign ram_addr = cur_stage + ((inst_needed == 1'b1) ? inst_addr[`InstLen - 1 : 0] : mem_addr[`AddrLen - 1 : 0]);
 assign ram_read_write = (inst_needed == 1'b1) ? 1'b1 : (cur_stage == cycle_num ? 1'b1 : mem_read_write);
-
-// wire [`InstLen - 1 : 0] addr;
-// assign addr = (inst_needed == 1'b1) ? inst_addr[`InstLen - 1 : 0] : mem_addr[`AddrLen - 1 : 0];
-
-wire [2 : 0] cycle_num;
 assign cycle_num = (inst_needed == 1'b1) ? 4 : ((mem_needed == 1'b1) ? mem_width[2:0] : 0);
 
 always @ (posedge clk) begin
@@ -63,10 +59,10 @@ always @ (posedge clk) begin
         mem_rdy   <= 0;
         mem_busy  <= 0;
         cur_stage <= 0;
-        // l_data[0] <= 0;
-        // l_data[1] <= 0;
-        // l_data[2] <= 0;
-        // l_data[3] <= 0;
+        l_data[0] <= 0;
+        l_data[1] <= 0;
+        l_data[2] <= 0;
+        l_data[3] <= 0;
     end else if (cycle_num && ram_read_write == 1'b1) begin // Read
         if (cur_stage == 0) begin
             inst_rdy <= 1'b0;

@@ -28,12 +28,12 @@ module If (
     output wire [`InstLen - 1 : 0] inst_addr_to_MemCtrl
 );
 
-assign stall_to_StallCtrl = chip_enable && !icache_found_from;
-assign inst_addr_to_MemCtrl = icache_addr_to;
-
 // if -> icache
 reg icache_needed_to;
 reg [`AddrLen - 1 : 0] icache_addr_to;
+
+assign stall_to_StallCtrl = chip_enable && !icache_found_from;
+assign inst_addr_to_MemCtrl = icache_addr_to;
 
 // icache -> if
 reg icache_found_from;

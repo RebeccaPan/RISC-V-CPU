@@ -41,6 +41,18 @@ module mem(
 
 always @ (*) begin
     if (rst == `ResetEnable) begin
+        mem_fw <= 1'b0;
+        mem_fw_data <= `ZERO_WORD;
+        mem_fw_addr <= `RegAddrLen'b0;
+    end else begin
+        mem_fw <= 1'b1;
+        mem_fw_addr <= rd_addr_i;
+        mem_fw_data <= (load_enable_i == 1'b1) ? rd_data_o : rd_data_i;
+    end
+end
+
+always @ (*) begin
+    if (rst == `ResetEnable) begin
         rd_data_o <= `ZERO_WORD;
         rd_addr_o <= `RegAddrLen'h0;
         rd_enable_o <= `WriteDisable;
@@ -52,6 +64,8 @@ always @ (*) begin
         mem_read_write <= 1'b0; 
         stall <= 1'b0;
     end else begin
+        rd_addr_o <= rd_addr_i;
+        rd_enable_o <= rd_enable_i;
         mem_needed <= 1'b0;
         mem_sdata <= `RegLen'b0;
         stall <= 1'b0;
@@ -104,8 +118,6 @@ always @ (*) begin
             end
         end else begin
             rd_data_o <= rd_data_i;
-            rd_addr_o <= rd_addr_i;
-            rd_enable_o <= rd_enable_i;
         end
     end
 end

@@ -9,7 +9,7 @@ module ex(
     input wire [`RegLen - 1 : 0] reg1,
     input wire [`RegLen - 1 : 0] reg2,
     // notice that reg2 = imm if imm is used
-    // input wire [`RegLen - 1 : 0] Imm
+    input wire [`RegLen - 1 : 0] br_offset,
     input wire [`RegLen - 1 : 0] rd,
     input wire rd_enable,
     input wire [`OpCodeLen - 1 : 0] aluop,
@@ -60,13 +60,11 @@ always @ (*) begin
             res = `ZERO_WORD;
         end else if (alusel == `STORE_OP) begin
             store_enable = 1'b1;
-            mem_addr = reg1; // reg1 + Imm
+            mem_addr = reg1 + br_offset; // reg1 + Imm
             res = reg2;
-        end
-
-        if (alusel == `BRANCH_OP) begin
-            // jump_enable = `JumpDisable;
-            jump_addr = reg1 + reg2;
+        end else if (alusel == `BRANCH_OP) begin
+            jump_enable = `JumpDisable;
+            jump_addr = pc + br_offset;
             case (aluop)
                 `EXE_BEQ:  if (reg1 == reg2) jump_enable = `JumpEnable;
                 `EXE_BNE:  if (reg1 != reg2) jump_enable = `JumpEnable;
@@ -76,7 +74,7 @@ always @ (*) begin
                 `EXE_BGEU: if (reg1 >= reg2) jump_enable = `JumpEnable;
             endcase
         end else begin
-           case (aluop)
+            case (aluop)
                 `EXE_ADD: res = reg1 +  reg2;
                 `EXE_SUB: res = reg1 -  reg2;
                 `EXE_SLL: res = reg1 << reg2[4:0]; // only the last 5 bits of reg2
@@ -96,7 +94,7 @@ always @ (*) begin
                 `EXE_JALR: begin
                     res = pc + 4;
                     jump_enable = `JumpEnable;
-                    jump_addr = pc + reg1 + reg2; // pc + rs1 + Imm
+                    jump_addr = reg1 + reg2; // rs1 + Imm
                 end
                 `EXE_JAL: begin
                     res = pc + 4;
@@ -136,13 +134,12 @@ always @ (*) begin
         ex_fw_addr = `RegLen'b0;
         ex_fw_data = `ZERO_WORD;
         is_load = 1'b0;
-    end
-    else begin 
+    end else begin 
         rd_data_o = res;
         rd_addr = rd;
         rd_enable_o = rd_enable;
 
-        ex_fw = 1'b1;
+        ex_fw = rd_enable;
         ex_fw_addr = rd;
         ex_fw_data = res;
         is_load = (alusel == `LOAD_OP) ? 1'b1 : 1'b0;
