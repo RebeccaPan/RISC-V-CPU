@@ -48,11 +48,14 @@ always @ (*) begin
         store_enable = 1'b0;
         jump_enable = `JumpDisable;
         jump_addr = `ZERO_WORD;
+        mem_addr = `AddrLen'b0;
     end
     else begin
         load_enable = 1'b0;
         store_enable = 1'b0;
         jump_enable = `JumpDisable;
+        jump_addr = `ZERO_WORD;
+        mem_addr = `AddrLen'b0;
         // alusel work here just to simplify the code
         if (alusel == `LOAD_OP) begin
             load_enable = 1'b1;
@@ -65,6 +68,7 @@ always @ (*) begin
         end else if (alusel == `BRANCH_OP) begin
             jump_enable = `JumpDisable;
             jump_addr = pc + br_offset;
+            res = `ZERO_WORD;
             case (aluop)
                 `EXE_BEQ:  if (reg1 == reg2) jump_enable = `JumpEnable;
                 `EXE_BNE:  if (reg1 != reg2) jump_enable = `JumpEnable;
@@ -75,22 +79,18 @@ always @ (*) begin
             endcase
         end else begin
             case (aluop)
-                `EXE_ADD: res = reg1 +  reg2;
-                `EXE_SUB: res = reg1 -  reg2;
-                `EXE_SLL: res = reg1 << reg2[4:0]; // only the last 5 bits of reg2
-                `EXE_SLT: res = ($signed(reg1) < $signed(reg2))?32'b1:32'b0;
-                `EXE_SLTU:res = (reg1 < reg2)?32'b1:32'b0;
-                `EXE_XOR: res = reg1 ^  reg2;
-                `EXE_SRL: res = reg1 >> reg2[4:0];
-                `EXE_SRA: res = $signed(reg1) >> reg2[4:0];
-                `EXE_OR:  res = reg1 |  reg2; 
-                `EXE_AND: res = reg1 &  reg2;
-
-                `EXE_AUIPC: begin
-                    res = pc + reg2;
-                    jump_enable = `JumpEnable;
-                    jump_addr = pc + reg2; // pc + Imm
-                end
+                `EXE_ADD:   res = reg1 +  reg2;
+                `EXE_SUB:   res = reg1 -  reg2;
+                `EXE_SLL:   res = reg1 << reg2[4:0]; // only the last 5 bits of reg2
+                `EXE_SLT:   res = ($signed(reg1) < $signed(reg2))?32'b1:32'b0;
+                `EXE_SLTU:  res = (reg1 < reg2)?32'b1:32'b0;
+                `EXE_XOR:   res = reg1 ^  reg2;
+                `EXE_SRL:   res = reg1 >> reg2[4:0];
+                `EXE_SRA:   res = $signed(reg1) >> reg2[4:0];
+                `EXE_OR:    res = reg1 |  reg2; 
+                `EXE_AND:   res = reg1 &  reg2;
+                `EXE_LUI:   res = reg2;
+                `EXE_AUIPC: res = pc + reg2;
                 `EXE_JALR: begin
                     res = pc + 4;
                     jump_enable = `JumpEnable;
@@ -101,8 +101,6 @@ always @ (*) begin
                     jump_enable = `JumpEnable;
                     jump_addr = pc + reg2; // pc + Imm
                 end
-
-                `EXE_LUI: res = reg2;
                 // Load and Store
                 /*`EXE_LB:  
                 `EXE_LH:  
@@ -126,7 +124,6 @@ always @ (*) begin
         rd_enable_o = `WriteDisable;
         // load_enable = 1'b0;
         // store_enable = 1'b0;
-        mem_addr = `AddrLen'b0;
         // jump_enable = `JumpDisable;
         // jump_addr = `AddrLen'h0;
         

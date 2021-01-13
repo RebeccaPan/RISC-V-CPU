@@ -192,7 +192,7 @@ always @ (*) begin
                 reg2_read_enable <= `ReadDisable;
                 rd <= inst[11:7];
                 aluop <= `EXE_AUIPC;
-                alusel <= `JUMP_OP;
+                alusel <= `LOGIC_OP;
             end
             `J_OP: begin // JAL
                 Imm <= {{12{inst[31]}}, inst[19:12], inst[20], inst[30:25], inst[24:21], 1'b0};

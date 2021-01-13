@@ -62,8 +62,8 @@
 
 `define EXE_JAL   4'b1001 // JUMP_OP
 `define EXE_JALR  4'b1010 // JUMP_OP
-`define EXE_LUI   4'b0110 // LOGIC_OP
-`define EXE_AUIPC 4'b0111 // JUMP_OP
+`define EXE_LUI   4'b1110 // LOGIC_OP
+`define EXE_AUIPC 4'b1111 // LOGIC_OP
 
 //`LOAD_OP or `STORE_OP checked in ex.v
 `define EXE_LB   4'b0001

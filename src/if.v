@@ -51,7 +51,7 @@ always @ (*) begin
     if (rst == `ResetEnable || chip_enable == `ChipDisable) begin
         pc_to_IFID <= `ZERO_WORD;
         inst_to_IFID <= `ZERO_WORD;
-        inst_needed_to_MemCtrl <= 1'b0;
+        // inst_needed_to_MemCtrl <= 1'b0;
         // inst_addr_to_MemCtrl <= `ZERO_WORD;
         icache_needed_to <= 1'b0;
         icache_addr_to <= `ZERO_WORD;

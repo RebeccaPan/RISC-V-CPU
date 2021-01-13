@@ -47,7 +47,8 @@ assign s_data[2] = mem_sdata[23:16];
 assign s_data[3] = mem_sdata[31:24];
 
 assign ram_o = (cur_stage == 3'b100) ? `ZERO_WORD : s_data[cur_stage];
-assign ram_addr = cur_stage + ((inst_needed == 1'b1) ? inst_addr[`InstLen - 1 : 0] : mem_addr[`AddrLen - 1 : 0]);
+// assign ram_addr = cur_stage + ((inst_needed == 1'b1) ? inst_addr[`InstLen - 1 : 0] : mem_addr[`AddrLen - 1 : 0]);
+assign ram_addr = (cur_stage == cycle_num) ? 32'b0 : cur_stage + ((inst_needed == 1'b1) ? inst_addr[`InstLen - 1 : 0] : mem_addr[`AddrLen - 1 : 0]);
 assign ram_read_write = (inst_needed == 1'b1) ? 1'b1 : (cur_stage == cycle_num ? 1'b1 : mem_read_write);
 assign cycle_num = (inst_needed == 1'b1) ? 4 : ((mem_needed == 1'b1) ? mem_width[2:0] : 0);
 
